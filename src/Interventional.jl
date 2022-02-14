@@ -2,6 +2,7 @@ module Interventional
     using LinearAlgebra
     using Combinatorics
     using LogExpFunctions
+    using StatsFuns
 
 
     include("utils.jl")
