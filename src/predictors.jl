@@ -1,6 +1,6 @@
 
 
-    """
+"""
     function predictor_mechanism_out(n, active_parents, Z, X0, X1, Sigma, R)
 """
 function predictor_mechanism_out(
@@ -52,36 +52,37 @@ function predictor_mechanism_out(
 
     X = counter > 1 ? X[:, 1:counter-1] : X
     X
-
-
-    function mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
-        b = length(p_inds)
-        X = zeros(n, 2 * b)
-        wh1 = Z[:, p] .== 1
-        wh0 = Z[:, p] .== 0
-        if ismissing(Sigma)
-            X[wh1, 1:b] = crossfun1(X0[wh1, :]) * X1_fun[wh1, p_inds]
-            X[wh0, b+1:end] = crossfun1(X0[wh0, :]) * X1_fun[wh0, p_inds]
-        else
-            X[wh1, 1:b] = sigma_mult(R, Sigma, X0[wh1, :], wh1) * X1_fun[wh1, p_inds]
-            X[wh0, (b+1):2*b] = sigma_mult(R, Sigma, X0[wh0, :], wh0) * X1_fun[wh0, p_inds]
-        end
-        X
-    end
-
-    function perfectout!(X, X1_fun, X0, Z, p_inds, Sigma, R)
-        for pa in p_inds
-            if maximum(Z[obs, pa]) == 1
-                wh0 = obs[Z[obs, pa].==0]
-                X0p = X0[wh0, :]
-                if ismissing(Sigma)
-                    X[wh0, p_inds.== pa] = crossfun1(X0p) * X1_fun[wh0, pa]
-                else
-                    X[wh0,p_inds .== pa] = sigma_mult(R, Sigma, X0p, wh0) * X1[wh0,pa]
-                end
-                X[Z[obs, pa]==1, p_inds.==pa] .= 0
-            end
-        end
-    end
-
 end
+
+
+
+function mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
+    b = length(p_inds)
+    X = zeros(n, 2 * b)
+    wh1 = Z[:, p] .== 1
+    wh0 = Z[:, p] .== 0
+    if ismissing(Sigma)
+        X[wh1, 1:b] = crossfun1(X0[wh1, :]) * X1_fun[wh1, p_inds]
+        X[wh0, b+1:end] = crossfun1(X0[wh0, :]) * X1_fun[wh0, p_inds]
+    else
+        X[wh1, 1:b] = sigma_mult(R, Sigma, X0[wh1, :], wh1) * X1_fun[wh1, p_inds]
+        X[wh0, (b+1):2*b] = sigma_mult(R, Sigma, X0[wh0, :], wh0) * X1_fun[wh0, p_inds]
+    end
+    X
+end
+
+function perfectout!(X, X1_fun, X0, Z, p_inds, Sigma, R)
+    for pa in p_inds
+        if maximum(Z[obs, pa]) == 1
+            wh0 = obs[Z[obs, pa].==0]
+            X0p = X0[wh0, :]
+            if ismissing(Sigma)
+                X[wh0, p_inds.==pa] = crossfun1(X0p) * X1_fun[wh0, pa]
+            else
+                X[wh0, p_inds.==pa] = sigma_mult(R, Sigma, X0p, wh0) * X1[wh0, pa]
+            end
+            X[Z[obs, pa]==1, p_inds.==pa] .= 0
+        end
+    end
+end
+
