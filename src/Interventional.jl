@@ -3,6 +3,7 @@ module Interventional
     using Combinatorics
     using LogExpFunctions
     using StatsFuns
+    using Statistics
 
 
     include("utils.jl")
