@@ -18,6 +18,16 @@ function InterventionalInference(
     g1::Union{Int,Missing} = missing,
     priorType::AbstractString = "uninformed",
 )::Tuple where {T1<:Real}
+    
+    IP = InterventionPattern(;
+        allowSelfEdges = allowSelfEdges,
+        perfectOut = perfect_out,
+        perfectIn = perfectIn,
+        fixedEffectOut = fixedEffectOut,
+        fixedEffectIn = fixedEffectIn,
+        mechanismChangeOut = mechanismChangeOut,
+        mechanismChangeIn = mechanismChangeIn,
+    )
 
     X1_fun = deepcopy(X1) # Do deepcopy to not alter input    
     P = size(y, 2)
@@ -31,7 +41,6 @@ function InterventionalInference(
 
     @assert priorType in ["uninformed", "Hamming", "Mukherjee"] "$priorType is not allowed as priorType. Must be 'uninformed', 'Hamming' or 'Mukherjee'."
 
-    @assert !((perfect_out || perfectIn) && (mechanismChangeIn || mechanismChangeOut)) "mechanism change and perfect interventions cannot be used togehter"
 
     if priorType in ["Hamming", "Mukherjee"]
         if !ismissing(priorGraph)
@@ -44,7 +53,7 @@ function InterventionalInference(
 
 
     # 2: ONLY DO FOR PERFECT OUT
-    if perfect_out
+    if IP.perfectOut
         X1_fun[findall(Z .== 1)] .= NaN
     end
 
@@ -73,6 +82,98 @@ function InterventionalInference(
     end
 
     # 6: Initilisation
+    ll, parentsets = main_loop(
+        P,
+        n_grphs,
+        maxindegree,
+        X1_fun,
+        n,
+        Z,
+        X0,
+        Sigma,
+        R,
+        IP0,
+        g,
+        a,
+        Y_fun,
+        IP
+    )
+
+    # 8: renornmalization & MAP    
+    MAP, MAPmodel, MAPprob, lpost =
+        MAP_function(P, n_grphs, parentsets, priorStrength, prior, ll, maxindegree)
+
+    # 9: Model averaging
+    pep = posterior(lpost, parentsets, P)
+
+
+    #10: Inference
+
+    #fitted = inference()
+
+
+
+    pep, MAP, MAPmodel, MAPprob
+end
+
+function inference(P, n, Z, X0, X1, Sigma, R, IP)
+    parents = zeros(P)
+    yhat = zeros(n, P)
+    parentsets = zeros(P, n_grphs)
+    for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
+        parentsets[p_inds, m] .= 1
+        if IP.mechanismChangeOut
+            X = predictor_mechanism_out(n, p_inds, Z, X0, X1_fun, Sigma, R)
+        end
+        if IP.fixedEffectOut
+            fixed_effect_out!(X, IP0, Z, p_inds)
+        end
+        uninhibitedResponses = collect(1:P)
+        inhibitedResponses = Int[]
+        if !allowSelfEdges
+            uninhibitedResponses = intersect(uninhibitedResponses, setdiff(1:P, p_inds))
+        end
+        if IP.perfectIn || IP.fixedEffectIn || IP.mechanismChangeIn
+            inhibitedResponses =
+                intersect(uninhibitedResponses, findall(maximum(Z, dims = 1) .== 1))
+            uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
+        end
+
+
+        """
+        get uninhibited responses here
+        """
+        b = size(X, 2)
+        H = zeros(n, n)
+        if b != 0
+            H = crossfun1(X, g / (g + 1.0))
+        end
+
+        @inbounds for p in uninhibitedResponses
+            yhat[:, p] .= yhat[:, p] .+ exp(lpost[p, m]) .* H * y[:, p]
+        end
+
+
+    end
+
+end
+
+function main_loop(
+    P::Int,
+    n_grphs::Int,
+    maxindegree::Int,
+    X1_fun::Matrix{T},
+    n::Int,
+    Z::Matrix,
+    X0::Matrix{T},
+    Sigma,
+    R,
+    IP0::Matrix{T},
+    g::Int,
+    a::Int,
+    Y_fun::Matrix{T},
+    IP::InterventionPattern{Bool}
+) where T<:Real
     ll = zeros(P, n_grphs)
     parentsets = zeros(P, n_grphs)
     # 7: Main Loop
@@ -82,20 +183,20 @@ function InterventionalInference(
 
         X = X1_fun[:, p_inds] # default
 
-        if mechanismChangeOut
+        if IP.mechanismChangeOut
             X = predictor_mechanism_out(n, p_inds, Z, X0, X1_fun, Sigma, R)
         end
 
-        if fixedEffectOut
+        if IP.fixedEffectOut
             fixed_effect_out!(X, IP0, Z, p_inds)
         end
 
         uninhibitedResponses = collect(1:P)
         inhibitedResponses = Int[]
-        if !allowSelfEdges
+        if !IP.allowSelfEdges
             uninhibitedResponses = intersect(uninhibitedResponses, setdiff(1:P, p_inds))
         end
-        if perfectIn || fixedEffectIn || mechanismChangeIn
+        if IP.perfectIn || IP.fixedEffectIn || IP.mechanismChangeIn
             inhibitedResponses =
                 intersect(uninhibitedResponses, findall(maximum(Z, dims = 1) .== 1))
             uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
@@ -127,18 +228,18 @@ function InterventionalInference(
 
             # Start assembling predictors
             X = X1_fun[obs, p_inds] # default
-            if mechanismChangeIn
-                X = mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
-            elseif perfect_out
+            if IP.mechanismChangeIn
+                X = predictors_mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
+            elseif IP.perfect_out
                 perfectout!(X, X1_fun, X0, Z, p_inds, Sigma, R)
             end
 
-            if fixedEffectIn || fixedEffectOut
+            if IP.fixedEffectIn || IP.fixedEffectOut
                 to_use = Int[]
-                if fixedEffectOut
+                if IP.fixedEffectOut
                     to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
                 end
-                if fixedEffectIn
+                if IP.fixedEffectIn
                     to_use = union(to_use, p)
                 end
                 X = hcat(X, Z[obs, to_use])
@@ -160,13 +261,37 @@ function InterventionalInference(
                 (length(obs) - a) / 2 * log(dot(Y_fun[obs, p], H, Y_fun[obs, p]))
         end # inhibited
     end # graphs
+    ll, parentsets
+end
 
-    # 8: renornmalization & MAP
-    normalisedPrior = Matrix{Float64}(undef, P, n_grphs)
+
+
+function posterior(
+    lpost::Matrix{R},
+    parentsets::Matrix{R},
+    P::Int,
+)::Matrix{R} where {R<:Real}
+    pep = Matrix{R}(undef, P, P)
+    @views @inbounds for i = 1:P, j = 1:P
+        pep[i, j] = sum(exp.(lpost[j, findall(parentsets[i, :] .== 1)]))
+    end
+    pep
+end
+
+function MAP_function(
+    P::Int,
+    n_grphs::Int,
+    parentsets::Matrix{R},
+    priorStrength::Int,
+    prior::Matrix{R},
+    ll::Matrix{R},
+    maxindegree::Int,
+)::Tuple{Matrix{R},Vector{R},Vector{R},Matrix{R}} where {R<:Real}
+    normalisedPrior = Matrix{R}(undef, P, n_grphs)
+    lpost = Matrix{R}(undef, P, n_grphs)
     parentCount = vec(sum(parentsets, dims = 1))
-    #ll = transpose(ll)
+    marginallikelihood = zeros(P, length(priorStrength))
     if length(priorStrength) > 1 && maximum(prior) > 0
-        marginallikelihood = zeros(P, length(priorStrength))
         llinf = ll
         llinf[ll.==0] .= -Inf
         for i = 1:length(priorStrength)
@@ -197,12 +322,10 @@ function InterventionalInference(
         lpost = ll + normalisedPrior .- const1
         marginallikelihood = const1
     end
+    MAP = Matrix{R}(undef, P, P)
 
-
-    MAP = Matrix{Float64}(undef, P, P)
-    pep = Matrix{Float64}(undef, P, P)
-    MAPprob = Vector{Float64}(undef, P)
-    MAPmodel = Vector{Float64}(undef, P)
+    MAPprob = Vector{R}(undef, P)
+    MAPmodel = Vector{R}(undef, P)
 
     @views @inbounds for p = 1:P
         if length(argmax(lpost[p, :])) > 0
@@ -216,12 +339,5 @@ function InterventionalInference(
             MAPprob[p] = NaN
         end
     end
-
-    # 9: Model averaging
-
-    @views @inbounds for i = 1:P, j = 1:P
-        pep[i, j] = sum(exp.(lpost[j, findall(parentsets[i, :] .== 1)]))
-    end
-
-    pep, MAP, MAPmodel, MAPprob
+    MAP, MAPmodel, MAPprob, lpost
 end

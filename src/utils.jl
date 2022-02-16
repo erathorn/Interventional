@@ -95,3 +95,39 @@ function disentangle(
 end
 
 
+
+struct InterventionPattern{B}
+    allowSelfEdges::B
+    perfectOut::B
+    perfectIn::B
+    fixedEffectOut::B
+    fixedEffectIn::B
+    mechanismChangeOut::B
+    mechanismChangeIn::B
+
+    function InterventionPattern(;
+        perfectOut::Bool = false,
+        allowSelfEdges::Bool = false,
+        perfectIn::Bool = false,
+        fixedEffectIn::Bool = false,
+        fixedEffectOut::Bool = false,
+        mechanismChangeIn::Bool = false,
+        mechanismChangeOut::Bool = false,
+    )
+        @assert !((perfectOut || perfectIn) && (mechanismChangeIn || mechanismChangeOut)) "mechanism change and perfect interventions cannot be used togehter"
+    
+        new{Bool}(
+            allowSelfEdges,
+            perfectOut,
+            perfectIn,
+            fixedEffectOut,
+            fixedEffectIn,
+            mechanismChangeOut,
+            mechanismChangeIn,
+        )
+    end
+    
+end
+
+
+

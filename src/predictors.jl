@@ -56,7 +56,7 @@ end
 
 
 
-function mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
+function predictors_mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
     b = length(p_inds)
     X = zeros(n, 2 * b)
     wh1 = Z[:, p] .== 1
