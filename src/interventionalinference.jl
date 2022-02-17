@@ -1,13 +1,11 @@
 
 function InterventionalInference(
-    y::Matrix{T1},
-    X0::Matrix{T1},
-    X1::Matrix{T1},
+    dbn_data::DBN_Data{T1},
     Z::Array{<:Real},
     maxindegree::Int;
     Sigma::Union{Array{<:Real},Missing} = missing,
-    perfect_out::Bool = false,
-    priorStrength::Int = 3,
+    perfectOut::Bool = false,
+    priorStrength::Vector{<:Real} = [3],
     allowSelfEdges::Bool = false,
     perfectIn::Bool = false,
     fixedEffectIn::Bool = false,
@@ -21,7 +19,7 @@ function InterventionalInference(
     
     IP = InterventionPattern(;
         allowSelfEdges = allowSelfEdges,
-        perfectOut = perfect_out,
+        perfectOut = perfectOut,
         perfectIn = perfectIn,
         fixedEffectOut = fixedEffectOut,
         fixedEffectIn = fixedEffectIn,
@@ -29,11 +27,11 @@ function InterventionalInference(
         mechanismChangeIn = mechanismChangeIn,
     )
 
-    X1_fun = deepcopy(X1) # Do deepcopy to not alter input    
-    P = size(y, 2)
-    n = size(y, 1)
+    #X1_fun = deepcopy(X1) # Do deepcopy to not alter input    
+    P = size(dbn_data.y, 2)
+    n = size(dbn_data.y, 1)
     g = ismissing(g1) ? n : g1
-    a = size(X0, 2)
+    a = size(dbn_data.X0, 2)
 
     if !ismissing(Sigma)
         @assert size(Sigma) == (n, n) "Sigma must have dimension (n x n)"
@@ -49,26 +47,24 @@ function InterventionalInference(
     end
 
     # 1: remove X0 from y
-    Y_fun, IP0, R = disentangle(y, X0, 1:n, Sigma)
+    IP0, R = disentangle(dbn_data, 1:n, Sigma)
 
 
     # 2: ONLY DO FOR PERFECT OUT
     if IP.perfectOut
-        X1_fun[findall(Z .== 1)] .= NaN
+        dbn_data.X1_trans[findall(Z .== 1)] .= NaN
     end
 
     # 3: Orhtogonalize Predictors
     @views for p = 1:P
-        wh = findall(broadcast(!, isnan.(X1_fun[:, p])))
+        wh = findall(broadcast(!, isnan.(dbn_data.X1_trans[:, p])))
         if length(wh) == n
-            X1_fun[:, p] .= IP0 * X1_fun[:, p]
+            dbn_data.X1_trans[:, p] .= IP0 * dbn_data.X1_trans[:, p]
         else
-            X1_fun[wh, p] .= crossfun1(X0[wh, :]) * X1_fun[wh, p]
+            dbn_data.X1_trans[wh, p] .= crossfun1(dbn_data.X0[wh, :]) * dbn_data.X1_trans[wh, p]
         end
-        X1_fun[findall(isnan.(X1_fun[:, p])), p] .= 0
+        dbn_data.X1_trans[findall(isnan.(dbn_data.X1_trans[:, p])), p] .= 0
     end
-
-
 
 
     # 5: prior
@@ -83,19 +79,17 @@ function InterventionalInference(
 
     # 6: Initilisation
     ll, parentsets = main_loop(
+        dbn_data,
         P,
         n_grphs,
         maxindegree,
-        X1_fun,
         n,
         Z,
-        X0,
         Sigma,
         R,
         IP0,
         g,
         a,
-        Y_fun,
         IP
     )
 
@@ -116,17 +110,17 @@ function InterventionalInference(
     pep, MAP, MAPmodel, MAPprob
 end
 
-function inference(P, n, Z, X0, X1, Sigma, R, IP)
+function inference(dbn_data, P, n, Z, Sigma, R, IP)
     parents = zeros(P)
     yhat = zeros(n, P)
     parentsets = zeros(P, n_grphs)
     for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
         parentsets[p_inds, m] .= 1
         if IP.mechanismChangeOut
-            X = predictor_mechanism_out(n, p_inds, Z, X0, X1_fun, Sigma, R)
+            X = predictor_mechanism_out(dbn_data, n, p_inds, Z, Sigma, R)
         end
         if IP.fixedEffectOut
-            fixed_effect_out!(X, IP0, Z, p_inds)
+            fixed_effect_out(X, IP0, Z, p_inds)
         end
         uninhibitedResponses = collect(1:P)
         inhibitedResponses = Int[]
@@ -150,7 +144,7 @@ function inference(P, n, Z, X0, X1, Sigma, R, IP)
         end
 
         @inbounds for p in uninhibitedResponses
-            yhat[:, p] .= yhat[:, p] .+ exp(lpost[p, m]) .* H * y[:, p]
+            yhat[:, p] .= yhat[:, p] .+ exp(lpost[p, m]) .* H * dbn_data.y_trans[:, p]
         end
 
 
@@ -159,37 +153,35 @@ function inference(P, n, Z, X0, X1, Sigma, R, IP)
 end
 
 function main_loop(
+    dbn_data::DBN_Data{T},
     P::Int,
     n_grphs::Int,
     maxindegree::Int,
-    X1_fun::Matrix{T},
     n::Int,
-    Z::Matrix,
-    X0::Matrix{T},
-    Sigma,
-    R,
+    Z::Matrix{<:Real},
+    Sigma::Union{Missing, Matrix{T}},
+    R::Matrix{T},
     IP0::Matrix{T},
     g::Int,
     a::Int,
-    Y_fun::Matrix{T},
     IP::InterventionPattern{Bool}
 ) where T<:Real
     ll = zeros(P, n_grphs)
     parentsets = zeros(P, n_grphs)
     # 7: Main Loop
-    @views @inbounds for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
+    
+    @inbounds for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
 
         parentsets[p_inds, m] .= 1
 
-        X = X1_fun[:, p_inds] # default
+        X = dbn_data.X1_trans[:, p_inds] # default
 
-        if IP.mechanismChangeOut
-            X = predictor_mechanism_out(n, p_inds, Z, X0, X1_fun, Sigma, R)
-        end
-
-        if IP.fixedEffectOut
-            fixed_effect_out!(X, IP0, Z, p_inds)
-        end
+        # relevant function is selected on dispatch
+        X = predictor_mechanism_out(Val(IP.mechanismChangeOut),X, dbn_data,n, p_inds, Z, Sigma, R)
+        
+        # relevant function is selected on dispatch
+        X = fixed_effect_out(Val(IP.fixedEffectOut), X, IP0, Z, p_inds)
+        
 
         uninhibitedResponses = collect(1:P)
         inhibitedResponses = Int[]
@@ -214,7 +206,7 @@ function main_loop(
 
         @inbounds for p in uninhibitedResponses
             ll[p, m] =
-                -b / 2 * log(1 + g) - (n - a) / 2 * log(dot(Y_fun[:, p], H, Y_fun[:, p]))
+                -b / 2 * log(1 + g) - (n - a) / 2 * log(dot(dbn_data.y_trans[:, p], H, dbn_data.y_trans[:, p]))
         end
 
         for p in inhibitedResponses
@@ -227,12 +219,12 @@ function main_loop(
             # End assembling predictor indices
 
             # Start assembling predictors
-            X = X1_fun[obs, p_inds] # default
-            if IP.mechanismChangeIn
-                X = predictors_mechanismchangein(X1_fun, X0, Z, p_inds, p, Sigma, R)
-            elseif IP.perfect_out
-                perfectout!(X, X1_fun, X0, Z, p_inds, Sigma, R)
-            end
+            X = dbn_data.X1_transX1_fun[obs, p_inds] # default
+            
+            X = predictors_mechanismchangein(Val(IP.mechanismChangeIn), X, dbn_data, Z, p_inds, p, Sigma, R)
+            
+            X = perfectout(Val(IP.perfect_out), X, dbn_data, Z, p_inds, Sigma, R)
+            
 
             if IP.fixedEffectIn || IP.fixedEffectOut
                 to_use = Int[]
@@ -245,7 +237,7 @@ function main_loop(
                 X = hcat(X, Z[obs, to_use])
             end
             # end assembling predictors
-            X0p = collect(X0[obs, :])
+            X0p = collect(dbn_data.X0[obs, :])
             if ismissing(Sigma)
                 X = crossfun1(X0p) * X
             else
@@ -258,7 +250,7 @@ function main_loop(
             end
             ll[p, m] =
                 -b / 2 * log(1 + g) -
-                (length(obs) - a) / 2 * log(dot(Y_fun[obs, p], H, Y_fun[obs, p]))
+                (length(obs) - a) / 2 * log(dot(dbn_data.y_trans[obs, p], H, dbn_data.y_trans[obs, p]))
         end # inhibited
     end # graphs
     ll, parentsets
@@ -282,7 +274,7 @@ function MAP_function(
     P::Int,
     n_grphs::Int,
     parentsets::Matrix{R},
-    priorStrength::Int,
+    priorStrength::Vector{<:Real},
     prior::Matrix{R},
     ll::Matrix{R},
     maxindegree::Int,
@@ -314,7 +306,7 @@ function MAP_function(
 
     else
         set_normalised_prior!(normalisedPrior, parentCount, maxindegree)
-        normalisedPrior -= priorStrength * prior
+        normalisedPrior -= priorStrength .* prior
         normalisedPrior .-= logsumexp(normalisedPrior, dims = 2)
         const1 = vec(minimum(ll + normalisedPrior, dims = 2))
         ll[ll.==0] .= -Inf

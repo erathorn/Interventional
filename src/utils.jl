@@ -24,11 +24,11 @@ end
 
 
 # reocurring function
-function crossfun1(X0p::M)::M where {M<:Array{<:Real}}
-    crossfun1(X0p, one(eltype(X0p)))
+function crossfun1(X0p::AbstractArray{T, 2})::Matrix{T} where {T<:Real}
+    crossfun1(X0p, one(T))
 end
 
-function crossfun1(X0p::AbstractArray{T}, scale::T)::Matrix{T} where {T<:Real}
+function crossfun1(X0p::AbstractArray{T, 2}, scale::T)::Matrix{T} where {T<:Real}
     I - scale .* X0p * inv(crossprod(X0p)) * transpose(X0p)
 end
 
@@ -53,24 +53,21 @@ end
     remove X0 from y with Sigma
 """
 function disentangle(
-    y::A,
-    X0::A,
+    data::DBN_Data{R},
     obs,
-    Sigma::Array{<:Real},
-)::Tuple{A,A,A} where {A<:Array{<:Real}}
-    n, P = size(y)
-    Y_fun = zeros(eltype(y), size(y))
-    IP0 = Array{eltype(y)}(undef, n, n)
-    R = transpose(cholesky(Sigma).U)
-    X0p = X0[obs, :]
-    solvesigma = (Sigma[obs, obs] \ X0p)
+    Sigma::Matrix{R},
+)::Tuple{Matrix{R}, Matrix{R}} where {R<:Real}
+    n, P = size(data.y)
+    IP0 = Array{eltype(data.y)}(undef, n, n)
+    R1 = transpose(cholesky(Sigma).U)
+    solvesigma = (Sigma[obs, obs] \ data.X0[obs, :])
     IP0 =
         inv(R[obs, obs]) -
-        (R[obs, obs] \ X0p) * (crossprod(X0p, solvesigma) \ transpose(solvesigma))
+        (R[obs, obs] \ data.X0[obs, :]) * (crossprod(data.X0[obs, :], solvesigma) \ transpose(solvesigma))
     @inbounds for i = 1:P
-        Y_fun[obs, i] = IP0 * y[obs, i]
+        data.y_trans[obs, i] = IP0 * data.y[obs, i]
     end
-    Y_fun, IP0, R
+    IP0, R1
 end
 
 
@@ -78,56 +75,20 @@ end
     remove X0 from y without prior on Sigma
 """
 function disentangle(
-    y::A,
-    X0::A,
+    data::DBN_Data{R},
     obs,
     Sigma::Missing,
-)::Tuple{A,A,A} where {A<:Array{<:Real}}
-    n, P = size(y)
-    Y_fun = zeros(eltype(y), size(y))
-    X0p = X0[obs, :]
-    R = Matrix{eltype(y)}(undef, 1, 1)
-    IP0 = crossfun1(X0p)
+)::Tuple{Matrix{R}, Matrix{R}} where R<:Real
+    n, P = size(data.y)
+    R1 = Matrix{eltype(data.y)}(undef, 1, 1)
+    IP0 = crossfun1(data.X0[obs, :])
     @inbounds for i = 1:P
-        Y_fun[obs, i] = IP0 * y[obs, i]
+        data.y_trans[obs, i] = IP0 * data.y[obs, i]
     end
-    Y_fun, IP0, R
+    IP0, R1
 end
 
 
-
-struct InterventionPattern{B}
-    allowSelfEdges::B
-    perfectOut::B
-    perfectIn::B
-    fixedEffectOut::B
-    fixedEffectIn::B
-    mechanismChangeOut::B
-    mechanismChangeIn::B
-
-    function InterventionPattern(;
-        perfectOut::Bool = false,
-        allowSelfEdges::Bool = false,
-        perfectIn::Bool = false,
-        fixedEffectIn::Bool = false,
-        fixedEffectOut::Bool = false,
-        mechanismChangeIn::Bool = false,
-        mechanismChangeOut::Bool = false,
-    )
-        @assert !((perfectOut || perfectIn) && (mechanismChangeIn || mechanismChangeOut)) "mechanism change and perfect interventions cannot be used togehter"
-    
-        new{Bool}(
-            allowSelfEdges,
-            perfectOut,
-            perfectIn,
-            fixedEffectOut,
-            fixedEffectIn,
-            mechanismChangeOut,
-            mechanismChangeIn,
-        )
-    end
-    
-end
 
 
 

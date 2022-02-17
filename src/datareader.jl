@@ -4,7 +4,7 @@ function format_DBNstyle(
     gradients::Bool = true,
     intercept::Bool = true,
     initialIntercept::Bool = true,
-)::Tuple{Matrix{R},Matrix{R},Matrix{R}} where {R<:Real}
+)::DBN_Data{R} where R <:Real
 
     cell_lines = unique(d[:, 1])
     inhibitors = unique(d[:, 2])
@@ -176,5 +176,6 @@ function format_DBNstyle(
             end
         end
     end
-    y, X0, X1
+    DBN_Data(y, X0, X1)
 end
+
