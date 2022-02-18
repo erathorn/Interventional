@@ -4,7 +4,7 @@ module Interventional
     using LogExpFunctions
     using StatsFuns
     using Statistics
-
+    
     include("types.jl")
     include("utils.jl")
     include("priors.jl")

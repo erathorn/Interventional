@@ -1,73 +1,65 @@
 
 function predictor_mechanism_out(
     ::Val{false},
-    X::AbstractArray{T1,2},
     dbn_data::DBN_Data{T1},
-    n::Int,
-    active_parents::Vector{<:Real},
+    parent_data::Parent_struct{T1, N},
+    p::Int,
     Z::Matrix{<:Real},
-    Sigma::Union{Missing,Matrix{<:Real}},
-    R::Matrix{<:Real},
-)::Matrix{T1} where {T1<:Real}
-    X
+    covariance::Bool,
+)::Parent_struct{T1, N} where {T1<:Real, N}
+    parent_data
 end
 """
     function predictor_mechanism_out(n, active_parents, Z, X0, X1, Sigma, R)
 """
 function predictor_mechanism_out(
     ::Val{true},
-    X::AbstractArray{T1,2},
     dbn_data::DBN_Data{T1},
-    n::Int,
-    active_parents::Vector{<:Real},
+    parent_data::Parent_struct{T1, N},
+    p::Int,
     Z::Matrix{<:Real},
-    Sigma::Union{Missing,Matrix{<:Real}},
-    R::Matrix{<:Real},
-)::Matrix{T1} where {T1<:Real}
+    covariance::Bool,
+)::Parent_struct{T1, 2} where {T1<:Real, N}
 
-    X = zeros(T1, n, length(active_parents) * 2)
-    counter = 1
-    for p in active_parents
-        if maximum(Z[:, p]) == 1
-            wh1 = Z[:, p] .== 1
-            wh2 = Z[:, p] .== 0
-            if ismissing(Sigma)
-                X[wh1, counter] = crossfun1(dbn_data.X0[wh1, :]) * dbn_data.X1_trans[wh1, p]
-                counter += 1
-                X[wh2, counter] = crossfun1(dbn_data.X0[wh2, :]) * dbn_data.X1_trans[wh2, p]
-                counter += 1
-            else
-                X[wh1, counter] .=
-                    (
-                        inv(R[wh1, wh1]) -
-                        (R[wh1, wh1] \ dbn_data.X0[wh1, :]) * (
-                            crossprod(
-                                dbn_data.X0[wh1, :],
-                                (Sigma[wh1, wh1] \ dbn_data.X0[wh1, :]),
-                            ) \ transpose(Sigma[wh1, wh1] \ dbn_data.X0[wh1, :])
-                        )
-                    ) * dbn_data.X1_trans[wh1, p]
-                counter += 1
-                X[wh2, counter] .=
-                    (
-                        inv(R[wh2, wh2]) -
-                        (R[wh2, wh2] \ dbn_data.X0[wh2, :]) * (
-                            crossprod(
-                                dbn_data.X0[wh2, :],
-                                (Sigma[wh2, wh2] \ dbn_data.X0[wh2, :]),
-                            ) \ transpose(Sigma[wh2, wh2] \ dbn_data.X0[wh2, :])
-                        )
-                    ) * dbn_data.X1_trans[wh2, p]
-                counter += 1
-            end
+    X = zeros(T1, size(Z, 1), 2)
+    
+    if maximum(Z[:, p]) == 1
+        wh1 = Z[:, p] .== 1
+        wh2 = Z[:, p] .== 0
+        if !covariance
+            X[wh1, 1] = crossfun1(parent_data.X0[wh1,:]) * parent_data.X1[wh1]
+            
+            X[wh2, 2] = crossfun1(parent_data.X0[wh2,:]) * parent_data.X1[wh2]
+            
         else
-            X[:, counter] .= dbn_data.X1_trans[:, p]
-            counter += 1
+            X[wh1, 1] .=
+                (
+                    inv(dbn_data.R[wh1, wh1]) -
+                    (dbn_data.R[wh1, wh1] \ parent_data.X0[wh1, :]) * (
+                        crossprod(
+                            parent_data.X0[wh1, :],
+                            (dbn_data.Sigma[wh1, wh1] \ parent_data.X0[wh1, :]),
+                        ) \ transpose(dbn_data.Sigma[wh1, wh1] \ parent_data.X0[wh1, :])
+                    )
+                ) * parent_data.X1_trans[wh1, p]
+            
+            X[wh2, 2] .=
+                (
+                    inv(dbn_data.R[wh2, wh2]) -
+                    (dbn_data.R[wh2, wh2] \ parent_data.X0[wh2, :]) * (
+                        crossprod(
+                            parent_data.X0[wh2, :],
+                            (dbn_data.Sigma[wh2, wh2] \ parent_data.X0[wh2, :]),
+                        ) \ transpose(dbn_data.Sigma[wh2, wh2] \ parent_data.X0[wh2, :])
+                    )
+                ) * parent_data.X1_trans[wh2, p]
+            
         end
+    else
+        X = parent_data.X1
     end
 
-    X = counter > 1 ? X[:, 1:counter-1] : X
-    X
+    Parent_struct(parent_data, X)
 end
 
 
@@ -151,23 +143,21 @@ end
 
 function fixed_effect_out(
     ::Val{true},
-    X::Matrix{R},
-    IP0::Matrix{R},
+    parent_data::Parent_struct{R, N},
     Z::Matrix{<:Real},
-    p_inds::Vector{Int},
-)::Matrix{R} where {R<:Real}
-    fe = IP0 * Z
-    Y = hcat(X, fe[:, union(p_inds, findall(vec(maximum(Z, dims = 1)) .== 1))])
-    Y
+    p::Int,
+)::Parent_struct{R} where {R<:Real, N}
+    fe = parent_data.IP0 * Z
+    Y = hcat(parent_data.X1, fe[:, union(p, findall(vec(maximum(Z, dims = 1)) .== 1))])
+    Parent_struct(parent_data, Y)
 end
 
 function fixed_effect_out(
     ::Val{false},
-    X::Matrix{R},
-    IP0::Matrix{R},
+    parent_data::Parent_struct{R,N},
     Z::Matrix{<:Real},
-    p_inds::Vector{Int},
-)::Matrix{R} where {R<:Real}
-    X
+    p::Int,
+)::Parent_struct{R,N} where {R<:Real, N}
+    parent_data
 end
 

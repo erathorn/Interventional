@@ -1,16 +1,42 @@
 
 
-struct DBN_Data{R<:Real}
-    y::Matrix{R}
-    y_trans::Matrix{R}
-    X0::Matrix{R}
-    X0_trans::Matrix{R}
-    X1::Matrix{R}
-    X1_trans::Matrix{R}
+struct Parent_struct{T<:Real, N}
+    y::Vector{T}
+    X0::Matrix{T}
+    X1::Array{T, N}
+    IP0::Matrix{T}
+
+    function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Vector{T}) where {T<:Real}
+        new{T, 1}(y, X0, X1, Matrix{T}(undef, length(y), length(y)))
+    end
+
+    function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Vector{T}, IP0::Matrix{T}) where {T<:Real}
+        new{T, 1}(y, X0, X1, IP0)
+    end
+
+    function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Array{T,N}, IP0::Matrix{T}) where {T<:Real, N}
+        new{T, N}(y, X0, X1, IP0)
+    end
+end
 
 
-    function DBN_Data(y::Matrix{R}, X0::Matrix{R}, X1::Matrix{R}) where {R<:Real}
-        new{R}(y, y, X0, X0, X1, X1)
+function Parent_struct(p::Parent_struct{T, M}, X::Array{T, N})::Parent_struct{T, N} where {T<:Real, M, N}
+    Parent_struct(p.y, p.X0, X, p.IP0)
+end
+
+Base.size(p::Parent_struct) = size(p.X1)
+struct DBN_Data{T<:Real}
+    y::Matrix{T}
+    y_trans::Matrix{T}
+    X0::Matrix{T}
+    X0_trans::Matrix{T}
+    X1::Matrix{T}
+    X1_trans::Matrix{T}
+    Sigma::Matrix{T}
+    R::Matrix{T}
+
+    function DBN_Data(y::Matrix{T}, X0::Matrix{T}, X1::Matrix{T}, Sigma::Matrix{T}) where {T<:Real}
+        new{T}(y, y, X0, X0, X1, X1, Sigma, Sigma)
     end
 end
 

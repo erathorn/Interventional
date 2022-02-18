@@ -4,7 +4,7 @@ function format_DBNstyle(
     gradients::Bool = true,
     intercept::Bool = true,
     initialIntercept::Bool = true,
-)::DBN_Data{R} where R <:Real
+)::DBN_Data{R} where {R<:Real}
 
     cell_lines = unique(d[:, 1])
     inhibitors = unique(d[:, 2])
@@ -17,9 +17,14 @@ function format_DBNstyle(
         sampleTimes[2:length(sampleTimes)] - sampleTimes[1:(length(sampleTimes)-1)]
     nodes = 1:(size(d, 2)-4)
     dm = d[:, 5:end]
-    y = Matrix{R}(undef, size(d, 1), length(nodes))
-    X0 = Matrix{R}(undef, size(d, 1), intercept + initialIntercept)
-    X1 = Matrix{R}(undef, size(d, 1), length(nodes))
+
+
+    data = DBN_Data(
+        Matrix{R}(undef, size(d, 1), length(nodes)),
+        Matrix{R}(undef, size(d, 1), intercept + initialIntercept),
+        Matrix{R}(undef, size(d, 1), length(nodes)),
+        zeros(R, size(d, 1), size(d, 1))
+    )
 
     n = 0
     ncelllines = zeros(length(cell_lines))
@@ -106,17 +111,21 @@ function format_DBNstyle(
                         if !all(isnan.(predictor)) && gradients
                             n += 1
                             if length(responses) == 1
-                                y[n, :] =
+                                data.y[n, :] =
                                     (dm[response, nodes] - predictor) / timeIntervals[k-1]
                                 #push!(y, (dm[response,nodes]-predictor)/timeIntervals[k-1])
                             else
-                                y[n, :] =
+                                data.y[n, :] =
                                     (mean(dm[response, nodes], dims = 1) - predictor) /
                                     timeIntervals[k-1]
                                 #push!(y, (mean(dm[response,nodes],dims=1)-predictor)/timeIntervals[k-1])
                             end
-
-                            X1[n, :] = predictor
+                            data.Sigma[n,n] = (1/length(response)+1/length(wh))/(timeIntervals[k-1])^2
+                            if (n>1 && prod(sampleInfo[n-1,:] .== [cellLine,i,j,sampleTimes[k-1]]) == 1)
+                                data.Sigma[n-1,n] = -1/length(wh)/timeIntervals[k-1]/timeIntervals[k-2]
+                                data.Sigma[n,n-1] = -1/length(wh)/timeIntervals[k-1]/timeIntervals[k-2]
+                            end
+                            data.X1[n, :] = predictor
                             push!(sampleInfo, [cellline, i, j, sampleTimes[k]])
                             push!(cond, current_condition)
 
@@ -131,14 +140,15 @@ function format_DBNstyle(
                             -ntimepoints[findall(timepoints == k)] + 1
 
                             if intercept
-                                push!(X0, ones(n))
+                                push!(data.X0, ones(n))
                             end
                         elseif !all(isnan.(predictor))
+                            data.Sigma[diagind(size(data.Sigma)...)] .= 1
                             for r in responses
                                 n += 1
-                                y[n, :] = dm[r, nodes]
+                                data.y[n, :] = dm[r, nodes]
 
-                                X1[n, :] = predictor
+                                data.X1[n, :] = predictor
 
                                 push!(sampleInfo, [cellline, i, j, sampleTimes[Int(k)]])
                                 push!(cond, current_condition)
@@ -161,13 +171,13 @@ function format_DBNstyle(
                                 ntimepoints[findall(timepoints == k)] .=
                                     ntimepoints[findall(timepoints == k)] .+ 1
                                 if intercept && initialIntercept && k == 1
-                                    X0[n, :] = [0, 1]
+                                    data.X0[n, :] = [0, 1]
                                 elseif intercept & initialIntercept && k > 1
-                                    X0[n, :] = [1, 0]
+                                    data.X0[n, :] = [1, 0]
                                 elseif intercept | (initialIntercept && k == 1)
-                                    X0[n] = 1
+                                    data.X0[n] = 1
                                 elseif initialIntercept && k > 1
-                                    X0[n] = 0
+                                    data.X0[n] = 0
                                 end
                             end
                         end
@@ -176,6 +186,6 @@ function format_DBNstyle(
             end
         end
     end
-    DBN_Data(y, X0, X1)
+    data
 end
 

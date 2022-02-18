@@ -3,7 +3,7 @@ function InterventionalInference(
     dbn_data::DBN_Data{T1},
     Z::Array{<:Real},
     maxindegree::Int;
-    Sigma::Union{Array{<:Real},Missing} = missing,
+    covariance::Bool = false,
     perfectOut::Bool = false,
     priorStrength::Vector{<:Real} = [3],
     allowSelfEdges::Bool = false,
@@ -33,10 +33,6 @@ function InterventionalInference(
     g = ismissing(g1) ? n : g1
     a = size(dbn_data.X0, 2)
 
-    if !ismissing(Sigma)
-        @assert size(Sigma) == (n, n) "Sigma must have dimension (n x n)"
-    end
-
     @assert priorType in ["uninformed", "Hamming", "Mukherjee"] "$priorType is not allowed as priorType. Must be 'uninformed', 'Hamming' or 'Mukherjee'."
 
 
@@ -46,24 +42,25 @@ function InterventionalInference(
         end
     end
 
-    # 1: remove X0 from y
-    IP0, R = disentangle(dbn_data, 1:n, Sigma)
 
-
-    # 2: ONLY DO FOR PERFECT OUT
-    if IP.perfectOut
-        dbn_data.X1_trans[findall(Z .== 1)] .= NaN
-    end
-
-    # 3: Orhtogonalize Predictors
-    @views for p = 1:P
-        wh = findall(broadcast(!, isnan.(dbn_data.X1_trans[:, p])))
-        if length(wh) == n
-            dbn_data.X1_trans[:, p] .= IP0 * dbn_data.X1_trans[:, p]
+    parentvec = Parent_struct{T1}[]
+    for p in 1:P
+        obs = IP.perfectIn && maximum(Z[:,p]) ==1 ? vec(findall(Z[:,p] .== 0)) : collect(1:n)
+        p_struct = disentangle(Val(covariance), dbn_data, obs, p)
+        if IP.perfectOut
+            wh = findall(vec(Z[:, p]) .== 1)
+            p_struct.X1[wh] .= NaN
+            p_struct.X1[wh] .= crossfun1(p_struct.X0[wh, :]) * p_struct.X1_trans[wh]
         else
-            dbn_data.X1_trans[wh, p] .= crossfun1(dbn_data.X0[wh, :]) * dbn_data.X1_trans[wh, p]
+            p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
         end
-        dbn_data.X1_trans[findall(isnan.(dbn_data.X1_trans[:, p])), p] .= 0
+        p_struct.X1[findall(isnan.(p_struct.X1))] .= 0
+
+        p_struct = predictor_mechanism_out(Val(IP.mechanismChangeOut), dbn_data, p_struct, p, Z, covariance)
+    
+        # relevant function is selected on dispatch
+        p_struct = fixed_effect_out(Val(IP.fixedEffectOut), p_struct, Z, p)
+        push!(parentvec, p_struct)
     end
 
 
@@ -76,21 +73,21 @@ function InterventionalInference(
     elseif priorType == "Mukherjee"
         MukherjeePrior!(prior, priorGraph, P, maxindegree)
     end
-
+    
+    
+    
     # 6: Initilisation
     ll, parentsets = main_loop(
         dbn_data,
-        P,
+        parentvec,
         n_grphs,
         maxindegree,
         n,
         Z,
-        Sigma,
-        R,
-        IP0,
         g,
         a,
-        IP
+        IP,
+        covariance
     )
 
     # 8: renornmalization & MAP    
@@ -110,62 +107,21 @@ function InterventionalInference(
     pep, MAP, MAPmodel, MAPprob
 end
 
-function inference(dbn_data, P, n, Z, Sigma, R, IP)
-    parents = zeros(P)
-    yhat = zeros(n, P)
-    parentsets = zeros(P, n_grphs)
-    for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
-        parentsets[p_inds, m] .= 1
-        if IP.mechanismChangeOut
-            X = predictor_mechanism_out(dbn_data, n, p_inds, Z, Sigma, R)
-        end
-        if IP.fixedEffectOut
-            fixed_effect_out(X, IP0, Z, p_inds)
-        end
-        uninhibitedResponses = collect(1:P)
-        inhibitedResponses = Int[]
-        if !allowSelfEdges
-            uninhibitedResponses = intersect(uninhibitedResponses, setdiff(1:P, p_inds))
-        end
-        if IP.perfectIn || IP.fixedEffectIn || IP.mechanismChangeIn
-            inhibitedResponses =
-                intersect(uninhibitedResponses, findall(maximum(Z, dims = 1) .== 1))
-            uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
-        end
-
-
-        """
-        get uninhibited responses here
-        """
-        b = size(X, 2)
-        H = zeros(n, n)
-        if b != 0
-            H = crossfun1(X, g / (g + 1.0))
-        end
-
-        @inbounds for p in uninhibitedResponses
-            yhat[:, p] .= yhat[:, p] .+ exp(lpost[p, m]) .* H * dbn_data.y_trans[:, p]
-        end
-
-
-    end
-
-end
 
 function main_loop(
     dbn_data::DBN_Data{T},
-    P::Int,
+    parentvec::Vector{Parent_struct{T}},
     n_grphs::Int,
     maxindegree::Int,
     n::Int,
     Z::Matrix{<:Real},
-    Sigma::Union{Missing, Matrix{T}},
-    R::Matrix{T},
-    IP0::Matrix{T},
     g::Int,
     a::Int,
-    IP::InterventionPattern{Bool}
+    IP::InterventionPattern{Bool},
+    covariance::Bool
+
 ) where T<:Real
+    P = length(parentvec)
     ll = zeros(P, n_grphs)
     parentsets = zeros(P, n_grphs)
     # 7: Main Loop
@@ -173,15 +129,6 @@ function main_loop(
     @inbounds for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
 
         parentsets[p_inds, m] .= 1
-
-        X = dbn_data.X1_trans[:, p_inds] # default
-
-        # relevant function is selected on dispatch
-        X = predictor_mechanism_out(Val(IP.mechanismChangeOut),X, dbn_data,n, p_inds, Z, Sigma, R)
-        
-        # relevant function is selected on dispatch
-        X = fixed_effect_out(Val(IP.fixedEffectOut), X, IP0, Z, p_inds)
-        
 
         uninhibitedResponses = collect(1:P)
         inhibitedResponses = Int[]
@@ -193,65 +140,72 @@ function main_loop(
                 intersect(uninhibitedResponses, findall(maximum(Z, dims = 1) .== 1))
             uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
         end
-
-
-        """
-        get uninhibited responses here
-        """
-        b = size(X, 2)
-        H = I(n)
-        if b != 0
-            H = crossfun1(X, g / (g + 1.0))
-        end
-
         @inbounds for p in uninhibitedResponses
-            ll[p, m] =
-                -b / 2 * log(1 + g) - (n - a) / 2 * log(dot(dbn_data.y_trans[:, p], H, dbn_data.y_trans[:, p]))
+            ll[p, m] +=
+                - length(p_inds) / 2 * log(1 + g) 
         end
-
-        for p in inhibitedResponses
-
-            # Start assembling predictor indices
-            obs = collect(1:n)
-            if perfectIn
-                obs = findall(Z[:, p] .== 0)
-            end
-            # End assembling predictor indices
-
-            # Start assembling predictors
-            X = dbn_data.X1_transX1_fun[obs, p_inds] # default
+        # THIS DOES NOT WORK ANYMORE
+        # THE SIZE OF X1 VARIES BY PARENT
+        #X = dbn_data.X1_trans[:, p_inds] # default
+        for par in p_inds
+            X = parentvec[par].X1
+            # relevant function is selected on dispatch
             
-            X = predictors_mechanismchangein(Val(IP.mechanismChangeIn), X, dbn_data, Z, p_inds, p, Sigma, R)
-            
-            X = perfectout(Val(IP.perfect_out), X, dbn_data, Z, p_inds, Sigma, R)
-            
-
-            if IP.fixedEffectIn || IP.fixedEffectOut
-                to_use = Int[]
-                if IP.fixedEffectOut
-                    to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
-                end
-                if IP.fixedEffectIn
-                    to_use = union(to_use, p)
-                end
-                X = hcat(X, Z[obs, to_use])
-            end
-            # end assembling predictors
-            X0p = collect(dbn_data.X0[obs, :])
-            if ismissing(Sigma)
-                X = crossfun1(X0p) * X
-            else
-                X = sigma_mult(R, Sigma, X0p, obs) * X
-            end
-            H = I(n)
+            """
+            get uninhibited responses here
+            """
             b = size(X, 2)
+            H = I(n)
             if b != 0
                 H = crossfun1(X, g / (g + 1.0))
             end
-            ll[p, m] =
-                -b / 2 * log(1 + g) -
-                (length(obs) - a) / 2 * log(dot(dbn_data.y_trans[obs, p], H, dbn_data.y_trans[obs, p]))
-        end # inhibited
+
+            @inbounds for p in uninhibitedResponses
+                ll[p, m] += - (n - a) / 2 * log(dot(parentvec[par].y, H, parentvec[par].y))
+            end
+
+            for p in inhibitedResponses
+
+                # Start assembling predictor indices
+                obs = collect(1:n)
+                if perfectIn
+                    obs = findall(Z[:, p] .== 0)
+                end
+                # End assembling predictor indices
+
+                # Start assembling predictors
+                X = dbn_data.X1_transX1_fun[obs, p_inds] # default
+                
+                X = predictors_mechanismchangein(Val(IP.mechanismChangeIn), X, dbn_data, Z, p_inds, p, Sigma, R)
+                
+                X = perfectout(Val(IP.perfect_out), X, dbn_data, Z, p_inds, Sigma, R)
+                
+
+                if IP.fixedEffectIn || IP.fixedEffectOut
+                    to_use = Int[]
+                    if IP.fixedEffectOut
+                        to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
+                    end
+                    if IP.fixedEffectIn
+                        to_use = union(to_use, p)
+                    end
+                    X = hcat(X, Z[obs, to_use])
+                end
+                # end assembling predictors
+                
+                
+                X = Xfun(Val(covariance), X, dbn_data, obs)
+                
+                H = I(n)
+                b = size(X, 2)
+                if b != 0
+                    H = crossfun1(X, g / (g + 1.0))
+                end
+                ll[p, m] =
+                    -b / 2 * log(1 + g) -
+                    (length(obs) - a) / 2 * log(dot(dbn_data.y_trans[obs, p], H, dbn_data.y_trans[obs, p]))
+            end # inhibited
+        end
     end # graphs
     ll, parentsets
 end
