@@ -76,7 +76,7 @@ function InterventionalInference(
     end
     
     
-    
+    println("Model Inference...")
     # 6: Initilisation
     ll, parentsets = main_loop(
         dbn_data,
@@ -96,16 +96,15 @@ function InterventionalInference(
         MAP_function(P, n_grphs, parentsets, priorStrength, prior, ll, maxindegree)
 
     # 9: Model averaging
-    pep = posterior(lpost, parentsets, P)
+    log_pep = log_posterior(lpost, parentsets, P)
 
 
-    #10: Inference
-
-    #fitted = inference()
-
+    println("Fitted Values...")
+    fitted = fittedValues(dbn_data, parentvec, n_grphs, maxindegree, n, Z, g, IP, covariance, lpost)
 
 
-    pep, MAP, MAPmodel, MAPprob
+
+    log_pep, MAP, MAPmodel, MAPprob, fitted
 end
 
 
@@ -126,6 +125,7 @@ function main_loop(
     ll = zeros(P, n_grphs)
     parentsets = zeros(P, n_grphs)
     # 7: Main Loop
+    prog_bar = Progress(n_grphs, dt=0.001, desc="Processing $n_grphs models: ", showspeed=true)
     
     @inbounds for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
 
@@ -156,7 +156,7 @@ function main_loop(
         else
             
             X0 = hcat([parentvec[par].X0 for par in p_inds]...)
-            X1 = hcat([parentvec[par].X0 for par in p_inds]...)    
+            X1 = hcat([parentvec[par].X1 for par in p_inds]...)    
             H = crossfun1(X1, g/(g+1))
             b = size(H, 2)
             for p in uninhibitedResponses
@@ -192,9 +192,9 @@ function main_loop(
                     X1 = Xfun(Val(covariance), X1, X0, dbn_data, parentvec[p].obs)
                     
                     H = I(n)
-                    b = size(X, 2)
+                    b = size(X1, 2)
                     if b != 0
-                        H = crossfun1(X, g / (g + 1.0))
+                        H = crossfun1(X1, g / (g + 1.0))
                     end
                     ll[p, m] =
                         -b / 2 * log(1 + g) -
@@ -202,22 +202,23 @@ function main_loop(
                 
             end
         end
+    next!(prog_bar)
     end # graphs
     ll, parentsets
 end
 
 
 
-function posterior(
+function log_posterior(
     lpost::Matrix{R},
     parentsets::Matrix{R},
     P::Int,
 )::Matrix{R} where {R<:Real}
-    pep = Matrix{R}(undef, P, P)
+    lpep = Matrix{R}(undef, P, P)
     @views @inbounds for i = 1:P, j = 1:P
-        pep[i, j] = sum(exp.(lpost[j, findall(parentsets[i, :] .== 1)]))
+        lpep[i, j] = logsumexp(lpost[j, findall(parentsets[i, :] .== 1)])
     end
-    pep
+    lpep
 end
 
 function MAP_function(

@@ -4,6 +4,7 @@ module Interventional
     using LogExpFunctions
     using StatsFuns
     using Statistics
+    using ProgressMeter
     
     include("types.jl")
     include("utils.jl")
@@ -11,6 +12,7 @@ module Interventional
     include("predictors.jl")
     include("datareader.jl")
     include("interventionalinference.jl")
+    include("inference.jl")
 
     export InterventionalInference, format_DBNstyle
 

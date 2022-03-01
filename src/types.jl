@@ -69,7 +69,7 @@ struct InterventionPattern{B}
         mechanismChangeOut::Bool = false,
     )
         @assert !((perfectOut || perfectIn) && (mechanismChangeIn || mechanismChangeOut)) "mechanism change and perfect interventions cannot be used togehter"
-
+        
         new{Bool}(
             allowSelfEdges,
             perfectOut,
