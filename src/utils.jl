@@ -7,14 +7,14 @@ end
 
 
 # provide unified interface to variant of crossprod in R
-function crossprod(X::AbstractArray{R}, Y::AbstractArray{R})::R where {R<:Real}
+function crossprod(X::AbstractArray{R, 1}, Y::AbstractArray{R, 1})::R where {R<:Real}
     dot(X, Y)
 end
 
 
-# function crossprod(X::M)::M where {M<:Array{<:Real}}
-#     transpose(X) * X
-# end
+ function crossprod(X::M)::M where {M<:Array{<:Real, 2}}
+     transpose(X) * X
+ end
 
 
 function crossprod(X::AbstractArray{M})::M where M <:Real
@@ -81,9 +81,23 @@ function disentangle(
     obs::Vector{Int},
     p::Int
 )::Parent_struct{R} where {R<:Real}
-    IP0 = crossfun1(data.X0[obs, :])
-    #data.y_trans[obs, p] = IP0 * data.y[obs, p]
-    Parent_struct(vec(IP0 * data.y[obs, p]), data.X0, vec(IP0*data.X1[obs, p]), IP0)
+    n = size(data.y, 1)
+    if any(obs != collect(1:n))
+        embed_y = zeros(n)
+        embed_x0 = zeros(size(data.X0))
+        embed_x1 = zeros(n)
+        embed_y[obs] .= data.y[obs, p]
+        embed_x0[obs, :] .= data.X0[obs, :]
+        embed_x1[obs] .= data.X1[obs, p]
+        IP0 = crossfun1(embed_x0)
+        #data.y_trans[obs, p] = IP0 * data.y[obs, p]
+        Parent_struct(vec(IP0 * embed_y), embed_x0, vec(IP0*embed_x1), IP0, obs)
+    else
+        
+        IP0 = crossfun1(data.X0[obs, :])
+        #data.y_trans[obs, p] = IP0 * data.y[obs, p]
+        Parent_struct(vec(IP0 * data.y[obs, p]), data.X0[obs, :], vec(IP0*data.X1[obs, p]), IP0, obs)
+    end
 end
 
 
@@ -91,19 +105,21 @@ end
 function Xfun(
     ::Val{false},
     X::Matrix{R},
+    X0::Matrix{R},
     dbn_data::DBN_Data{R},
     obs::Vector{Int},
 )::Matrix{R} where {R<:Real}
 
-    crossfun1(dbn_data.X0[obs, :]) * X
+    crossfun1(X0) * X
 end
 
 
 function Xfun(
     ::Val{true},
     X::Matrix{R},
+    X0::Matrix{R},
     dbn_data::DBN_Data{R},
-    obs::Vector{Int},
+    obs::Vector{Int}
 )::Matrix{R} where {R<:Real}
-    sigma_mult(dbn_data.R, dbn_data.Sigma, dbn_data.X0[obs, :], obs) * X
+    sigma_mult(dbn_data.R, dbn_data.Sigma, X0, obs) * X
 end

@@ -5,23 +5,32 @@ struct Parent_struct{T<:Real, N}
     X0::Matrix{T}
     X1::Array{T, N}
     IP0::Matrix{T}
+    obs::Vector{Int}
 
     function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Vector{T}) where {T<:Real}
-        new{T, 1}(y, X0, X1, Matrix{T}(undef, length(y), length(y)))
+        new{T, 1}(y, X0, X1, Matrix{T}(undef, length(y), length(y)), length(y))
     end
 
     function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Vector{T}, IP0::Matrix{T}) where {T<:Real}
-        new{T, 1}(y, X0, X1, IP0)
+        new{T, 1}(y, X0, X1, IP0, length(y))
     end
 
     function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Array{T,N}, IP0::Matrix{T}) where {T<:Real, N}
-        new{T, N}(y, X0, X1, IP0)
+        new{T, N}(y, X0, X1, IP0, length(y))
+    end
+
+    function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Vector{T}, IP0::Matrix{T}, obs::Vector{Int}) where {T<:Real}
+        new{T, 1}(y, X0, X1, IP0, obs)
+    end
+
+    function Parent_struct(y::Vector{T}, X0::Matrix{T}, X1::Array{T,N}, IP0::Matrix{T}, obs::Vector{Int}) where {T<:Real, N}
+        new{T, N}(y, X0, X1, IP0, obs)
     end
 end
 
 
 function Parent_struct(p::Parent_struct{T, M}, X::Array{T, N})::Parent_struct{T, N} where {T<:Real, M, N}
-    Parent_struct(p.y, p.X0, X, p.IP0)
+    Parent_struct(p.y, p.X0, X, p.IP0, p.obs)
 end
 
 Base.size(p::Parent_struct) = size(p.X1)

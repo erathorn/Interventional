@@ -49,10 +49,11 @@ function InterventionalInference(
         p_struct = disentangle(Val(covariance), dbn_data, obs, p)
         if IP.perfectOut
             wh = findall(vec(Z[:, p]) .== 1)
+            n_wh = settdiff(1:n, wh)
             p_struct.X1[wh] .= NaN
-            p_struct.X1[wh] .= crossfun1(p_struct.X0[wh, :]) * p_struct.X1_trans[wh]
-        else
-            p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
+            p_struct.X1[n_wh] .= crossfun1(p_struct.X0[n_wh, :]) * p_struct.X1_trans[n_wh]
+        #else
+        #    p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
         end
         p_struct.X1[findall(isnan.(p_struct.X1))] .= 0
 
@@ -137,74 +138,69 @@ function main_loop(
         end
         if IP.perfectIn || IP.fixedEffectIn || IP.mechanismChangeIn
             inhibitedResponses =
-                intersect(uninhibitedResponses, findall(maximum(Z, dims = 1) .== 1))
+                intersect(uninhibitedResponses, findall(vec(maximum(Z, dims = 1) .== 1)))
             uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
         end
-        @inbounds for p in uninhibitedResponses
-            ll[p, m] +=
-                - length(p_inds) / 2 * log(1 + g) 
-        end
-        # THIS DOES NOT WORK ANYMORE
-        # THE SIZE OF X1 VARIES BY PARENT
-        #X = dbn_data.X1_trans[:, p_inds] # default
-        for par in p_inds
-            X = parentvec[par].X1
-            # relevant function is selected on dispatch
-            
-            """
-            get uninhibited responses here
-            """
-            b = size(X, 2)
-            H = I(n)
-            if b != 0
-                H = crossfun1(X, g / (g + 1.0))
-            end
 
+        
+        if length(p_inds) == 0
+            b = 0
             @inbounds for p in uninhibitedResponses
-                ll[p, m] += - (n - a) / 2 * log(dot(parentvec[par].y, H, parentvec[par].y))
+                ll[p, m] = -b/2*log(1+g) -(n - a) / 2 * log(dot(parentvec[p].y, parentvec[p].y))
             end
-
+            @inbounds for p in inhibitedResponses
+                ll[p, m] =
+                        -b / 2 * log(1 + g) -
+                        (length(parentvec[p].obs) - a) / 2 * log(dot(parentvec[p].y, parentvec[p].y))
+            end
+        else
+            
+            X0 = hcat([parentvec[par].X0 for par in p_inds]...)
+            X1 = hcat([parentvec[par].X0 for par in p_inds]...)    
+            H = crossfun1(X1, g/(g+1))
+            b = size(H, 2)
+            for p in uninhibitedResponses
+                """
+                get uninhibited responses here
+                """
+                ll[p, m] += - b / 2 * log(1 + g) - (n - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
+            end
+        
+            
             for p in inhibitedResponses
 
-                # Start assembling predictor indices
-                obs = collect(1:n)
-                if perfectIn
-                    obs = findall(Z[:, p] .== 0)
-                end
-                # End assembling predictor indices
+                    # Start assembling predictor indices
 
-                # Start assembling predictors
-                X = dbn_data.X1_transX1_fun[obs, p_inds] # default
-                
-                X = predictors_mechanismchangein(Val(IP.mechanismChangeIn), X, dbn_data, Z, p_inds, p, Sigma, R)
-                
-                X = perfectout(Val(IP.perfect_out), X, dbn_data, Z, p_inds, Sigma, R)
-                
+                    X1 = predictors_mechanismchangein(Val(IP.mechanismChangeIn), parentvec[p],X1, dbn_data, Z, p)                    #
+                    X1 = perfectout(Val(IP.perfectOut), X1, dbn_data, Z, p_inds, dbn_data.Sigma, dbn_data.R)
 
-                if IP.fixedEffectIn || IP.fixedEffectOut
-                    to_use = Int[]
-                    if IP.fixedEffectOut
-                        to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
+                    if IP.fixedEffectIn || IP.fixedEffectOut
+                        to_use = Int[]
+                        if IP.fixedEffectOut
+                            to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
+                        end
+                        if IP.fixedEffectIn
+                            to_use = union(to_use, p)
+                        end
+                        Z_new = zeros(size(Z[:, to_use]))
+                        Z_new[:] .= Z[parentvec[p].obs , to_use]
+                        X1 = hcat(X1, Z_new)
                     end
-                    if IP.fixedEffectIn
-                        to_use = union(to_use, p)
+                    # end assembling predictors
+                    
+                    
+                    X1 = Xfun(Val(covariance), X1, X0, dbn_data, parentvec[p].obs)
+                    
+                    H = I(n)
+                    b = size(X, 2)
+                    if b != 0
+                        H = crossfun1(X, g / (g + 1.0))
                     end
-                    X = hcat(X, Z[obs, to_use])
-                end
-                # end assembling predictors
+                    ll[p, m] =
+                        -b / 2 * log(1 + g) -
+                        (length(parentvec[p].obs) - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
                 
-                
-                X = Xfun(Val(covariance), X, dbn_data, obs)
-                
-                H = I(n)
-                b = size(X, 2)
-                if b != 0
-                    H = crossfun1(X, g / (g + 1.0))
-                end
-                ll[p, m] =
-                    -b / 2 * log(1 + g) -
-                    (length(obs) - a) / 2 * log(dot(dbn_data.y_trans[obs, p], H, dbn_data.y_trans[obs, p]))
-            end # inhibited
+            end
         end
     end # graphs
     ll, parentsets

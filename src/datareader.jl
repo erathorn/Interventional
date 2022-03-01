@@ -171,7 +171,7 @@ function format_DBNstyle(
                                 ntimepoints[findall(timepoints == k)] .=
                                     ntimepoints[findall(timepoints == k)] .+ 1
                                 if intercept && initialIntercept && k == 1
-                                    data.X0[n, :] = [0, 1]
+                                    data.X0[n, :] = [1, 1]
                                 elseif intercept & initialIntercept && k > 1
                                     data.X0[n, :] = [1, 0]
                                 elseif intercept | (initialIntercept && k == 1)

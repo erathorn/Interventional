@@ -64,40 +64,35 @@ end
 
 
 function predictors_mechanismchangein(::Val{false},
+    parent::Parent_struct{T},
     X::Matrix{T},
     dbn_data::DBN_Data{T},
     Z::Matrix{<:Real},
-    p_inds::Vector{Int},
-    p::Int,
-    Sigma::Union{Missing,Matrix{T}},
-    R::Matrix{T},
+    p::Int
 )::Matrix{T} where {T<:Real}
     X
 end
 
 
-function predictors_mechanismchangein(
-    ::Val{true},
+function predictors_mechanismchangein(::Val{true},
+    parent::Parent_struct{T},
     X::Matrix{T},
     dbn_data::DBN_Data{T},
     Z::Matrix{<:Real},
-    p_inds::Vector{Int},
-    p::Int,
-    Sigma::Union{Missing,Matrix{T}},
-    R::Matrix{T},
+    p::Int
 )::Matrix{T} where {T<:Real}
-    b = length(p_inds)
+    b = size(X, 2)
     Y = zeros(n, 2 * b)
     wh1 = Z[:, p] .== 1
     wh0 = Z[:, p] .== 0
     if ismissing(Sigma)
-        Y[wh1, 1:b] = crossfun1(dbn_data.X0[wh1, :]) * dbn_data.X1_trans[wh1, p_inds]
-        Y[wh0, b+1:end] = crossfun1(dbn_data.X0[wh0, :]) * dbn_data.X1_trans[wh0, p_inds]
+        Y[wh1, 1:b] = crossfun1(X0[wh1, :]) * X1[wh1, :]
+        Y[wh0, b+1:end] = crossfun1(X0[wh0, :]) * X1[wh0, :]
     else
         Y[wh1, 1:b] =
-            sigma_mult(R, Sigma, dbn_data.X0[wh1, :], wh1) * dbn_data.X1_trans[wh1, p_inds]
+            sigma_mult(R, Sigma, parent.X0[wh1, :], wh1) * parent.X1[wh1,:]
         Y[wh0, (b+1):2*b] =
-            sigma_mult(R, Sigma, dbn_data.X0[wh0, :], wh0) * dbn_data.X1_trans[wh0, p_inds]
+            sigma_mult(R, Sigma, parent.X0[wh0, :], wh0) * parent.X1[wh0, :]
     end
     Y
 end
