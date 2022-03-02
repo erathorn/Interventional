@@ -1,27 +1,48 @@
-
+"""
 function predictor_mechanism_out(
     ::Val{false},
-    dbn_data::DBN_Data{T1},
-    parent_data::Parent_struct{T1, N},
+    dbn_data::DBN_Data{T},
+    parent_data::Parent_struct{T, N},
     p::Int,
     Z::Matrix{<:Real},
     covariance::Bool,
-)::Parent_struct{T1, N} where {T1<:Real, N}
+)::Parent_struct{T, N} where {T<:Real, N}
+
+pass everything through
+"""
+function predictor_mechanism_out(
+    ::Val{false},
+    dbn_data::DBN_Data{T},
+    parent_data::Parent_struct{T, N},
+    p::Int,
+    Z::Matrix{<:Real},
+    covariance::Bool,
+)::Parent_struct{T, N} where {T<:Real, N}
     parent_data
 end
-"""
-    function predictor_mechanism_out(n, active_parents, Z, X0, X1, Sigma, R)
+
 """
 function predictor_mechanism_out(
     ::Val{true},
-    dbn_data::DBN_Data{T1},
-    parent_data::Parent_struct{T1, N},
+    dbn_data::DBN_Data{T},
+    parent_data::Parent_struct{T, N},
     p::Int,
     Z::Matrix{<:Real},
     covariance::Bool,
-)::Parent_struct{T1, 2} where {T1<:Real, N}
+)::Parent_struct{T, 2} where {T<:Real, N}
 
-    X = zeros(T1, size(Z, 1), 2)
+assemble predictors for mechanism out change
+"""
+function predictor_mechanism_out(
+    ::Val{true},
+    dbn_data::DBN_Data{T},
+    parent_data::Parent_struct{T},
+    p::Int,
+    Z::Matrix{<:Real},
+    covariance::Bool,
+)::Parent_struct{T, 2} where {T<:Real, N}
+
+    X = zeros(T, size(Z, 1), 2)
     
     if maximum(Z[:, p]) == 1
         wh1 = Z[:, p] .== 1
