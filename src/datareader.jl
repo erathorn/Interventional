@@ -9,7 +9,6 @@ function format_DBNstyle(
 
 transform a data array into a DBN_Data struct which can be used for the interventional inference scheme
 """
-
 function format_DBNstyle(
     d::Array{R,2};
     gradients::Bool = true,
