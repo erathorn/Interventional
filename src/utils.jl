@@ -59,7 +59,6 @@ function disentangle(
     p::Int
 )::Parent_struct{R} where {R<:Real}
     n, P = size(data.y)
-    #IP0 = Array{eltype(data.y)}(undef, n, n)
     data.R = transpose(cholesky(Sigma).U)
     solvesigma = (data.Sigma[obs, obs] \ data.X0[obs, :])
     IP0 =
@@ -67,7 +66,6 @@ function disentangle(
         (data.R[obs, obs] \ data.X0[obs, :]) *
         (crossprod(data.X0[obs, :], solvesigma) \ transpose(solvesigma))
     
-    data.y_trans[obs, p] = IP0 * data.y[obs, p]
     Parent_struct(IP0 * data.y[obs, p], data.X0, IP0*data.X1[obs, p], IP0)
 end
 
@@ -90,12 +88,10 @@ function disentangle(
         embed_x0[obs, :] .= data.X0[obs, :]
         embed_x1[obs] .= data.X1[obs, p]
         IP0 = crossfun1(embed_x0)
-        #data.y_trans[obs, p] = IP0 * data.y[obs, p]
         Parent_struct(vec(IP0 * embed_y), embed_x0, vec(IP0*embed_x1), IP0, obs)
     else
         
         IP0 = crossfun1(data.X0[obs, :])
-        #data.y_trans[obs, p] = IP0 * data.y[obs, p]
         Parent_struct(vec(IP0 * data.y[obs, p]), data.X0[obs, :], vec(IP0*data.X1[obs, p]), IP0, obs)
     end
 end

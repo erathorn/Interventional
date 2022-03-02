@@ -1,5 +1,15 @@
 
+"""
+struct Parent_struct{T<:Real, N}
+    y::Vector{T}
+    X0::Matrix{T}
+    X1::Array{T, N}
+    IP0::Matrix{T}
+    obs::Vector{Int}
+end
 
+Structure holding the transforemd data for each node in the DBN.
+"""
 struct Parent_struct{T<:Real, N}
     y::Vector{T}
     X0::Matrix{T}
@@ -34,22 +44,35 @@ function Parent_struct(p::Parent_struct{T, M}, X::Array{T, N})::Parent_struct{T,
 end
 
 Base.size(p::Parent_struct) = size(p.X1)
+
+"""
 struct DBN_Data{T<:Real}
     y::Matrix{T}
-    y_trans::Matrix{T}
     X0::Matrix{T}
-    X0_trans::Matrix{T}
     X1::Matrix{T}
-    X1_trans::Matrix{T}
+    Sigma::Matrix{T}
+    R::Matrix{T}
+end
+
+The structure holding the entire data.
+"""
+struct DBN_Data{T<:Real}
+    y::Matrix{T}
+    X0::Matrix{T}
+    X1::Matrix{T}
     Sigma::Matrix{T}
     R::Matrix{T}
 
     function DBN_Data(y::Matrix{T}, X0::Matrix{T}, X1::Matrix{T}, Sigma::Matrix{T}) where {T<:Real}
-        new{T}(y, y, X0, X0, X1, X1, Sigma, Sigma)
+        new{T}(y, X0, X1, Sigma, Sigma)
     end
 end
 
+"""
+    InterventionPattern{B}
 
+Holds the information about the Interventional setup.
+"""
 struct InterventionPattern{B}
     allowSelfEdges::B
     perfectOut::B

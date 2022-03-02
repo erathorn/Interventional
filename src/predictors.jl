@@ -41,7 +41,7 @@ function predictor_mechanism_out(
                             (dbn_data.Sigma[wh1, wh1] \ parent_data.X0[wh1, :]),
                         ) \ transpose(dbn_data.Sigma[wh1, wh1] \ parent_data.X0[wh1, :])
                     )
-                ) * parent_data.X1_trans[wh1, p]
+                ) * parent_data.X1[wh1, p]
             
             X[wh2, 2] .=
                 (
@@ -52,7 +52,7 @@ function predictor_mechanism_out(
                             (dbn_data.Sigma[wh2, wh2] \ parent_data.X0[wh2, :]),
                         ) \ transpose(dbn_data.Sigma[wh2, wh2] \ parent_data.X0[wh2, :])
                     )
-                ) * parent_data.X1_trans[wh2, p]
+                ) * parent_data.X1[wh2, p]
             
         end
     else

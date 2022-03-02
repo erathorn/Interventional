@@ -1,6 +1,6 @@
-
+"""
 function InterventionalInference(
-    dbn_data::DBN_Data{T1},
+    dbn_data::DBN_Data{T},
     Z::Array{<:Real},
     maxindegree::Int;
     covariance::Bool = false,
@@ -15,7 +15,27 @@ function InterventionalInference(
     priorGraph::Union{Missing,Matrix{<:Real}} = missing,
     g1::Union{Int,Missing} = missing,
     priorType::AbstractString = "uninformed",
-)::Tuple where {T1<:Real}
+)::Tuple where {T<:Real}
+
+Run the Interventional Inference function.
+"""
+function InterventionalInference(
+    dbn_data::DBN_Data{T},
+    Z::Array{<:Real},
+    maxindegree::Int;
+    covariance::Bool = false,
+    perfectOut::Bool = false,
+    priorStrength::Vector{<:Real} = [3],
+    allowSelfEdges::Bool = false,
+    perfectIn::Bool = false,
+    fixedEffectIn::Bool = false,
+    fixedEffectOut::Bool = false,
+    mechanismChangeIn::Bool = false,
+    mechanismChangeOut::Bool = false,
+    priorGraph::Union{Missing,Matrix{<:Real}} = missing,
+    g1::Union{Int,Missing} = missing,
+    priorType::AbstractString = "uninformed",
+)::Tuple where {T<:Real}
 
     IP = InterventionPattern(;
         allowSelfEdges = allowSelfEdges,
@@ -43,7 +63,7 @@ function InterventionalInference(
     end
 
 
-    parentvec = Parent_struct{T1}[]
+    parentvec = Parent_struct{T}[]
     for p = 1:P
         obs =
             IP.perfectIn && maximum(Z[:, p]) == 1 ? vec(findall(Z[:, p] .== 0)) :
@@ -53,7 +73,7 @@ function InterventionalInference(
             wh = findall(vec(Z[:, p]) .== 1)
             n_wh = settdiff(1:n, wh)
             p_struct.X1[wh] .= NaN
-            p_struct.X1[n_wh] .= crossfun1(p_struct.X0[n_wh, :]) * p_struct.X1_trans[n_wh]
+            p_struct.X1[n_wh] .= crossfun1(p_struct.X0[n_wh, :]) * p_struct.X1[n_wh]
             #else
             #    p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
         end
