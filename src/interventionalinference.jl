@@ -16,7 +16,7 @@ function InterventionalInference(
     g1::Union{Int,Missing} = missing,
     priorType::AbstractString = "uninformed",
 )::Tuple where {T1<:Real}
-    
+
     IP = InterventionPattern(;
         allowSelfEdges = allowSelfEdges,
         perfectOut = perfectOut,
@@ -44,21 +44,30 @@ function InterventionalInference(
 
 
     parentvec = Parent_struct{T1}[]
-    for p in 1:P
-        obs = IP.perfectIn && maximum(Z[:,p]) ==1 ? vec(findall(Z[:,p] .== 0)) : collect(1:n)
+    for p = 1:P
+        obs =
+            IP.perfectIn && maximum(Z[:, p]) == 1 ? vec(findall(Z[:, p] .== 0)) :
+            collect(1:n)
         p_struct = disentangle(Val(covariance), dbn_data, obs, p)
         if IP.perfectOut
             wh = findall(vec(Z[:, p]) .== 1)
             n_wh = settdiff(1:n, wh)
             p_struct.X1[wh] .= NaN
             p_struct.X1[n_wh] .= crossfun1(p_struct.X0[n_wh, :]) * p_struct.X1_trans[n_wh]
-        #else
-        #    p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
+            #else
+            #    p_struct.X1[:] .= p_struct.IP0 * p_struct.X1            
         end
         p_struct.X1[findall(isnan.(p_struct.X1))] .= 0
 
-        p_struct = predictor_mechanism_out(Val(IP.mechanismChangeOut), dbn_data, p_struct, p, Z, covariance)
-    
+        p_struct = predictor_mechanism_out(
+            Val(IP.mechanismChangeOut),
+            dbn_data,
+            p_struct,
+            p,
+            Z,
+            covariance,
+        )
+
         # relevant function is selected on dispatch
         p_struct = fixed_effect_out(Val(IP.fixedEffectOut), p_struct, Z, p)
         push!(parentvec, p_struct)
@@ -74,22 +83,12 @@ function InterventionalInference(
     elseif priorType == "Mukherjee"
         MukherjeePrior!(prior, priorGraph, P, maxindegree)
     end
-    
-    
+
+
     println("Model Inference...")
     # 6: Initilisation
-    ll, parentsets = main_loop(
-        dbn_data,
-        parentvec,
-        n_grphs,
-        maxindegree,
-        n,
-        Z,
-        g,
-        a,
-        IP,
-        covariance
-    )
+    ll, parentsets =
+        main_loop(dbn_data, parentvec, n_grphs, maxindegree, n, Z, g, a, IP, covariance)
 
     # 8: renornmalization & MAP    
     MAP, MAPmodel, MAPprob, lpost =
@@ -100,7 +99,18 @@ function InterventionalInference(
 
 
     println("Fitted Values...")
-    fitted = fittedValues(dbn_data, parentvec, n_grphs, maxindegree, n, Z, g, IP, covariance, lpost)
+    fitted = fittedValues(
+        dbn_data,
+        parentvec,
+        n_grphs,
+        maxindegree,
+        n,
+        Z,
+        g,
+        IP,
+        covariance,
+        lpost,
+    )
 
 
 
@@ -118,15 +128,19 @@ function main_loop(
     g::Int,
     a::Int,
     IP::InterventionPattern{Bool},
-    covariance::Bool
-
-) where T<:Real
+    covariance::Bool,
+) where {T<:Real}
     P = length(parentvec)
     ll = zeros(P, n_grphs)
     parentsets = zeros(P, n_grphs)
     # 7: Main Loop
-    prog_bar = Progress(n_grphs, dt=0.001, desc="Processing $n_grphs models: ", showspeed=true)
-    
+    prog_bar = Progress(
+        n_grphs,
+        dt = 0.001,
+        desc = "Processing $n_grphs models: ",
+        showspeed = true,
+    )
+
     @inbounds for (m, p_inds) in enumerate(powerset(1:P, 0, maxindegree))
 
         parentsets[p_inds, m] .= 1
@@ -142,67 +156,46 @@ function main_loop(
             uninhibitedResponses = setdiff(uninhibitedResponses, inhibitedResponses)
         end
 
-        
+
         if length(p_inds) == 0
             b = 0
             @inbounds for p in uninhibitedResponses
-                ll[p, m] = -b/2*log(1+g) -(n - a) / 2 * log(dot(parentvec[p].y, parentvec[p].y))
+                ll[p, m] =
+                    -b / 2 * log(1 + g) -
+                    (n - a) / 2 * log(dot(parentvec[p].y, parentvec[p].y))
             end
             @inbounds for p in inhibitedResponses
                 ll[p, m] =
-                        -b / 2 * log(1 + g) -
-                        (length(parentvec[p].obs) - a) / 2 * log(dot(parentvec[p].y, parentvec[p].y))
+                    -b / 2 * log(1 + g) -
+                    (length(parentvec[p].obs) - a) / 2 *
+                    log(dot(parentvec[p].y, parentvec[p].y))
             end
         else
-            
+
             X0 = hcat([parentvec[par].X0 for par in p_inds]...)
-            X1 = hcat([parentvec[par].X1 for par in p_inds]...)    
-            H = crossfun1(X1, g/(g+1))
-            b = size(H, 2)
-            for p in uninhibitedResponses
+            X1 = hcat([parentvec[par].X1 for par in p_inds]...)
+            
+            @inbounds for p in uninhibitedResponses
                 """
                 get uninhibited responses here
                 """
-                ll[p, m] += - b / 2 * log(1 + g) - (n - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
+                H = crossfun1(X1, g / (g + 1))
+                b = size(H, 2)
+                ll[p, m] +=
+                    -b / 2 * log(1 + g) -
+                    (n - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
             end
-        
-            
-            for p in inhibitedResponses
 
-                    # Start assembling predictor indices
+            @inbounds for p in inhibitedResponses
+                H, b = H_func(dbn_data, parentvec, Z, X1, X0,IP,g, p, p_inds, n, covariance)
+                ll[p, m] =
+                    -b / 2 * log(1 + g) -
+                    (length(parentvec[p].obs) - a) / 2 *
+                    log(dot(parentvec[p].y, H, parentvec[p].y))
 
-                    X1 = predictors_mechanismchangein(Val(IP.mechanismChangeIn), parentvec[p],X1, dbn_data, Z, p)                    #
-                    X1 = perfectout(Val(IP.perfectOut), X1, dbn_data, Z, p_inds, dbn_data.Sigma, dbn_data.R)
-
-                    if IP.fixedEffectIn || IP.fixedEffectOut
-                        to_use = Int[]
-                        if IP.fixedEffectOut
-                            to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
-                        end
-                        if IP.fixedEffectIn
-                            to_use = union(to_use, p)
-                        end
-                        Z_new = zeros(size(Z[:, to_use]))
-                        Z_new[:] .= Z[parentvec[p].obs , to_use]
-                        X1 = hcat(X1, Z_new)
-                    end
-                    # end assembling predictors
-                    
-                    
-                    X1 = Xfun(Val(covariance), X1, X0, dbn_data, parentvec[p].obs)
-                    
-                    H = I(n)
-                    b = size(X1, 2)
-                    if b != 0
-                        H = crossfun1(X1, g / (g + 1.0))
-                    end
-                    ll[p, m] =
-                        -b / 2 * log(1 + g) -
-                        (length(parentvec[p].obs) - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
-                
             end
         end
-    next!(prog_bar)
+        next!(prog_bar)
     end # graphs
     ll, parentsets
 end
@@ -283,4 +276,51 @@ function MAP_function(
         end
     end
     MAP, MAPmodel, MAPprob, lpost
+end
+
+function H_func(
+    dbn_data::DBN_Data{R},
+    parentvec::Vector{Parent_struct{R}},
+    Z::Matrix{<:Real},
+    X1_f::Matrix{R},
+    X0::Matrix{R},
+    IP::InterventionPattern{Bool},
+    g::Int,
+    p::Int,
+    p_inds::Vector{Int},
+    n::Int,
+    covariance::Bool
+)::Tuple{Matrix{R}, Int} where {R<:Real}
+    X1 = predictors_mechanismchangein(
+        Val(IP.mechanismChangeIn),
+        parentvec[p],
+        deepcopy(X1_f),
+        dbn_data,
+        Z,
+        p,
+    )                    #
+    X1 = perfectout(Val(IP.perfectOut), X1, dbn_data, Z, p_inds, dbn_data.Sigma, dbn_data.R)
+
+    if IP.fixedEffectIn || IP.fixedEffectOut
+        to_use = Int[]
+        if IP.fixedEffectOut
+            to_use = union(to_use, [x for x in p_inds if maximum(Z[pbs, x]) == 1])
+        end
+        if IP.fixedEffectIn
+            to_use = union(to_use, p)
+        end
+        Z_new = zeros(size(Z[:, to_use]))
+        Z_new[:] .= Z[parentvec[p].obs, to_use]
+        X1 = hcat(X1, Z_new)
+    end
+    # end assembling predictors
+
+    X1 = Xfun(Val(covariance), X1, X0, dbn_data, parentvec[p].obs)
+
+    H = I(n)
+    b = size(X1, 2)
+    if b != 0
+        H = crossfun1(X1, g / (g + 1.0))
+    end
+    H, b
 end
