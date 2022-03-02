@@ -97,7 +97,6 @@ function InterventionalInference(
     # 9: Model averaging
     log_pep = log_posterior(lpost, parentsets, P)
 
-
     println("Fitted Values...")
     fitted = fittedValues(
         dbn_data,
@@ -174,20 +173,21 @@ function main_loop(
 
             X0 = hcat([parentvec[par].X0 for par in p_inds]...)
             X1 = hcat([parentvec[par].X1 for par in p_inds]...)
-            
+            H = crossfun1(X1, g / (g + 1))
+            b = size(X1, 2)
             @inbounds for p in uninhibitedResponses
                 """
                 get uninhibited responses here
                 """
-                H = crossfun1(X1, g / (g + 1))
-                b = size(H, 2)
+                
                 ll[p, m] +=
                     -b / 2 * log(1 + g) -
                     (n - a) / 2 * log(dot(parentvec[p].y, H, parentvec[p].y))
             end
 
             @inbounds for p in inhibitedResponses
-                H, b = H_func(dbn_data, parentvec, Z, X1, X0,IP,g, p, p_inds, n, covariance)
+                H, b =
+                    H_func(dbn_data, parentvec, Z, X1, X0, IP, g, p, p_inds, n, covariance)
                 ll[p, m] =
                     -b / 2 * log(1 + g) -
                     (length(parentvec[p].obs) - a) / 2 *
@@ -199,8 +199,6 @@ function main_loop(
     end # graphs
     ll, parentsets
 end
-
-
 
 function log_posterior(
     lpost::Matrix{R},
@@ -289,8 +287,8 @@ function H_func(
     p::Int,
     p_inds::Vector{Int},
     n::Int,
-    covariance::Bool
-)::Tuple{Matrix{R}, Int} where {R<:Real}
+    covariance::Bool,
+)::Tuple{Matrix{R},Int} where {R<:Real}
     X1 = predictors_mechanismchangein(
         Val(IP.mechanismChangeIn),
         parentvec[p],
